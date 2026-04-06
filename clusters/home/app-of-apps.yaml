@@ -1,0 +1,26 @@
+---
+# App of Apps — home cluster
+# Apply this once manually to bootstrap GitOps on the home cluster.
+# After that, all apps listed in kustomization.yaml are managed by ArgoCD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: home-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:SimonJaricot/argocd-apps.git
+    targetRevision: HEAD
+    path: clusters/home
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
