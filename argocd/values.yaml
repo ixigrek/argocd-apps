@@ -1,0 +1,32 @@
+# ArgoCD Helm values for Talos cluster
+# Standard installation with Gateway API ingress
+
+argo-cd:
+  global:
+    domain: argocd.ricot.net
+
+  # Server configuration
+  server:
+    # Run insecure - TLS terminated at Gateway
+    extraArgs:
+      - --insecure
+
+    service:
+      type: ClusterIP
+      servicePortHttp: 80
+      servicePortHttps: 443
+      servicePortHttpsAppProtocol: kubernetes.io/h2c
+
+    # Disable built-in ingress (using Gateway API instead)
+    ingress:
+      enabled: false
+
+  # Redis (single instance for standard install)
+  redis:
+    enabled: true
+
+  # Configs
+  configs:
+    params:
+      # Server runs behind TLS-terminating proxy
+      server.insecure: true
