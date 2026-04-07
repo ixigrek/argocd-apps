@@ -95,6 +95,9 @@ airflow:
   # ============================================================
   # TRIGGERER
   # Gère les deferrable operators (sensors asynchrones).
+  # ⚠️  Le init container "wait-for-airflow-migrations" hérite des
+  # resources du triggerer (chart 1.20.0). Airflow 3.x charge tout le
+  # module Python au démarrage → 256Mi minimum pour éviter OOMKilled.
   # ============================================================
   triggerer:
     enabled: true
@@ -107,7 +110,7 @@ airflow:
         memory: 128Mi
       limits:
         cpu: 500m
-        memory: 256Mi
+        memory: 512Mi
 
   # ============================================================
   # LOGS — pas de PVC local (LocalPV non portable entre nodes)
@@ -145,25 +148,28 @@ airflow:
   # HELM HOOKS — désactivés pour compatibilité ArgoCD SSA
   # useHelmHooks: true (défaut) pose des annotations helm.sh/hook
   # incompatibles avec ServerSideApply=true (conflit field manager).
-  # Les Jobs sont délégués aux hooks ArgoCD (PostSync).
+  # Les Jobs sont délégués aux hooks ArgoCD.
   # ttlSecondsAfterFinished: nettoyage automatique après succès.
   # Note: backoffLimit n'est PAS dans le schema du chart → non défini ici.
   #
-  # IMPORTANT — pourquoi PostSync et non PreSync pour migrateDatabaseJob ?
-  # Le Job PreSync s'exécute AVANT les ressources normales (SAs, ConfigMaps,
-  # Secrets). La SA "airflow-migrate-database-job" et le ConfigMap "airflow-config"
-  # n'existent pas encore → le pod ne peut pas démarrer.
-  # PostSync garantit que toutes les ressources (y compris PostgreSQL) sont
-  # Healthy avant l'exécution. Le hook-weight=-1 assure que migrate tourne
-  # AVANT createUserJob (weight=0) dans la même phase PostSync.
+  # IMPORTANT — pourquoi Sync et non PreSync pour migrateDatabaseJob ?
+  # - PreSync : tourne AVANT les ressources normales → SA et ConfigMap absents
+  #   → pod du Job ne peut pas démarrer ("serviceaccount not found").
+  # - PostSync : tourne après que l'app est Healthy → deadlock car les pods
+  #   (scheduler, triggerer...) ont un init container "wait-for-airflow-migrations"
+  #   qui boucle jusqu'à ce que la DB soit migrée. L'app ne devient jamais Healthy.
+  # - Sync : tourne APRÈS que tous les manifests sont appliqués (SAs, ConfigMaps,
+  #   Secrets, PostgreSQL StatefulSet) mais AVANT d'attendre l'état Healthy.
+  #   → SA existe, DB disponible, migration réussit, init containers passent.
+  # createUserJob en PostSync (weight=0) tourne après la migration (Sync) et
+  # après que les pods soient Healthy.
   # ============================================================
   migrateDatabaseJob:
     useHelmHooks: false
     applyCustomEnv: false
     jobAnnotations:
-      argocd.argoproj.io/hook: PostSync
+      argocd.argoproj.io/hook: Sync
       argocd.argoproj.io/hook-delete-policy: HookSucceeded
-      argocd.argoproj.io/hook-weight: "-1"
     ttlSecondsAfterFinished: 300
 
   createUserJob:
@@ -172,7 +178,6 @@ airflow:
     jobAnnotations:
       argocd.argoproj.io/hook: PostSync
       argocd.argoproj.io/hook-delete-policy: HookSucceeded
-      argocd.argoproj.io/hook-weight: "0"
     ttlSecondsAfterFinished: 300
 
   # ============================================================
