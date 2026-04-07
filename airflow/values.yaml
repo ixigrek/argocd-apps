@@ -49,9 +49,32 @@ airflow:
   #     -n airflow
   webserverSecretKeySecretName: airflow-webserver-secret-key
 
+  # API secret key : authentification API REST (Airflow 3.x)
+  #   kubectl create secret generic airflow-api-secret-key \
+  #     --from-literal=api-secret-key=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
+  #     -n airflow
+  apiServerSecretKeySecretName: airflow-api-secret-key
+
+  # JWT secret : signature des tokens JWT pour l'API (Airflow 3.x)
+  #   kubectl create secret generic airflow-jwt-secret \
+  #     --from-literal=jwt-secret=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
+  #     -n airflow
+  jwtSecretKeySecretName: airflow-jwt-secret
+
   # Base de données — PostgreSQL intégré (suffisant pour un usage personnel)
   postgresql:
     enabled: true
+
+  # Migration job — désactiver les Helm hooks pour que ArgoCD gère le job directement
+  # Avec useHelmHooks: true (défaut), le job est invisible à ArgoCD et ne se relance pas
+  migrateDatabaseJob:
+    useHelmHooks: false
+    applyCustomEnv: false
+
+  # Idem pour le job de création de l'utilisateur admin
+  createUserJob:
+    useHelmHooks: false
+    applyCustomEnv: false
 
   # Redis désactivé — inutile avec KubernetesExecutor
   redis:
