@@ -1,23 +1,13 @@
 # Airflow Helm values pour le cluster home
 # Chart: apache-airflow/airflow 1.20.0 (Airflow 3.1.8)
+# Configuration minimale — à enrichir par la suite
 
 airflow:
-  # Executor : KubernetesExecutor — chaque task = un pod éphémère
-  # Pas de workers permanents, bien adapté à un cluster Talos avec ressources limitées
-  executor: KubernetesExecutor
-
-  # Désactiver l'ingress Nginx intégré — on utilise Gateway API
-  ingress:
-    web:
-      enabled: false
-
-  # Interface web
-  webserver:
-    replicas: 1
-
-  # Scheduler
-  scheduler:
-    replicas: 1
+  # Secrets à créer manuellement avant le premier sync :
+  #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  #   kubectl create secret generic airflow-fernet-key \
+  #     --from-literal=fernet-key=<valeur> -n airflow
+  fernetKeySecretName: airflow-fernet-key
 
   # DAGs — chargés via gitSync depuis le repo privé airflow-dags
   # Authentification par Deploy Key SSH (lecture seule sur le repo)
@@ -26,80 +16,11 @@ airflow:
   #   gh repo deploy-key add ~/.ssh/airflow_dags_deploy_key.pub \
   #     --repo SimonJaricot/airflow-dags --title "airflow-gitsync-home" --read-only
   #   kubectl create secret generic airflow-git-ssh-secret \
-  #     --from-file=gitSshKey=~/.ssh/airflow_dags_deploy_key -n airflow
+  #     --from-file=gitSshKey=$HOME/.ssh/airflow_dags_deploy_key -n airflow
   dags:
     gitSync:
       enabled: true
       repo: git@github.com:SimonJaricot/airflow-dags.git
       branch: main
       subPath: dags
-      # Référence au Secret Kubernetes contenant la clé privée SSH (champ gitSshKey)
       sshKeySecret: airflow-git-ssh-secret
-
-  # Clés de chiffrement — secrets créés manuellement hors GitOps
-  # Fernet key : chiffrement des connexions/variables sensibles en base
-  #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-  #   kubectl create secret generic airflow-fernet-key \
-  #     --from-literal=fernet-key=<valeur> -n airflow
-  fernetKeySecretName: airflow-fernet-key
-
-  # Webserver secret key : signature des sessions Flask / JWT
-  #   kubectl create secret generic airflow-webserver-secret-key \
-  #     --from-literal=webserver-secret-key=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
-  #     -n airflow
-  webserverSecretKeySecretName: airflow-webserver-secret-key
-
-  # API secret key : authentification API REST (Airflow 3.x)
-  #   kubectl create secret generic airflow-api-secret-key \
-  #     --from-literal=api-secret-key=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
-  #     -n airflow
-  apiServerSecretKeySecretName: airflow-api-secret-key
-
-  # JWT secret : signature des tokens JWT pour l'API (Airflow 3.x)
-  #   kubectl create secret generic airflow-jwt-secret \
-  #     --from-literal=jwt-secret=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
-  #     -n airflow
-  jwtSecretKeySecretName: airflow-jwt-secret
-
-  # Base de données — PostgreSQL intégré (suffisant pour un usage personnel)
-  postgresql:
-    enabled: true
-
-  # Migration job — désactiver les Helm hooks pour que ArgoCD gère le job directement
-  # Avec useHelmHooks: true (défaut), le job est invisible à ArgoCD et ne se relance pas
-  migrateDatabaseJob:
-    useHelmHooks: false
-    applyCustomEnv: false
-
-  # Augmenter le timeout du check-migrations dans les init containers (défaut 60s)
-  # Airflow 3.x / chart 1.20.0 : le check peut timeout même si le schema est correct
-  migrationsWaitTimeout: 300
-
-  # waitForMigrations init container — désactivé car db check-migrations est buggé
-  # sur Airflow 3.x avec un schema créé via db migrate (vs db upgrade)
-  # Les migrations sont appliquées manuellement via un pod dédié au premier démarrage
-  waitForMigrations:
-    enabled: false
-
-  # Idem pour le job de création de l'utilisateur admin
-  createUserJob:
-    useHelmHooks: false
-    applyCustomEnv: false
-
-  # Redis désactivé — inutile avec KubernetesExecutor
-  redis:
-    enabled: false
-
-  # Flower désactivé — UI de monitoring Celery, inutile avec KubernetesExecutor
-  flower:
-    enabled: false
-
-  # Logs — persistence désactivée car openebs-hostpath ne supporte que RWO
-  # et le PVC logs nécessite RWX (plusieurs pods y accèdent simultanément)
-  logs:
-    persistence:
-      enabled: false
-
-  # Désactiver le StatsD exporter par défaut (peut être activé plus tard)
-  statsd:
-    enabled: false
