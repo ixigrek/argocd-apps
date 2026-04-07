@@ -71,6 +71,11 @@ airflow:
     useHelmHooks: false
     applyCustomEnv: false
 
+  # Augmenter le timeout du check-migrations dans les init containers (défaut 60s)
+  # Airflow 3.x / chart 1.20.0 : le check peut timeout même si le schema est correct
+  waitForMigrations:
+    migrationsWaitTimeout: 300
+
   # Idem pour le job de création de l'utilisateur admin
   createUserJob:
     useHelmHooks: false
