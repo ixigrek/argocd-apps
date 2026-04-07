@@ -145,6 +145,21 @@ airflow:
         memory: 1Gi
 
   # ============================================================
+  # WORKERS — pod template KubernetesExecutor
+  # Ces resources s'appliquent à TOUS les pods de task lancés par
+  # KubernetesExecutor via le pod_template_file généré par le chart.
+  # Évite de définir executor_config dans chaque DAG.
+  # ============================================================
+  workers:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # ============================================================
   # LOGS — pas de PVC local (LocalPV non portable entre nodes)
   # Les logs transitent par stdout → collectés par OTel à terme.
   # ============================================================
