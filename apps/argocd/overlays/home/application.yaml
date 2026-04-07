@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: git@github.com:SimonJaricot/argocd-apps.git
     targetRevision: HEAD
-    path: argocd
+    path: helm/argocd
     helm:
       valueFiles:
         - values.yaml

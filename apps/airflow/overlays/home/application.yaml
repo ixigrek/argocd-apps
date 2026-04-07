@@ -15,7 +15,7 @@ spec:
   source:
     repoURL: git@github.com:SimonJaricot/argocd-apps.git
     targetRevision: HEAD
-    path: airflow
+    path: helm/airflow
     helm:
       valueFiles:
         - values.yaml
