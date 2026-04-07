@@ -1,22 +1,187 @@
 # Airflow Helm values pour le cluster home
 # Chart: apache-airflow/airflow 1.20.0 (Airflow 3.1.8)
-# Configuration minimale — à enrichir par la suite
+# KubernetesExecutor : chaque task tourne dans un pod éphémère, pas de workers permanents
 
 airflow:
-  # Secrets à créer manuellement avant le premier sync :
+  # ============================================================
+  # EXECUTOR
+  # Défaut upstream : "CeleryExecutor" → déploie Redis + workers + Flower.
+  # On force KubernetesExecutor pour éviter ces composants.
+  # ============================================================
+  executor: "KubernetesExecutor"
+
+  # ============================================================
+  # COMPOSANTS CELERY — désactivés explicitement
+  # Le schema du chart accepte redis.enabled et flower.enabled.
+  # workers n'a pas de clé "enabled" dans le schema → on ne le définit pas.
+  # ============================================================
+  redis:
+    enabled: false
+
+  flower:
+    enabled: false
+
+  # ============================================================
+  # SECRETS
+  # À créer manuellement avant le premier sync ArgoCD :
+  #
+  #   # Clé Fernet (chiffrement des connexions en DB)
   #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
   #   kubectl create secret generic airflow-fernet-key \
   #     --from-literal=fernet-key=<valeur> -n airflow
+  #
+  #   # Clé webserver (signature des tokens internes, stable entre redémarrages)
+  #   python3 -c "import secrets; print(secrets.token_hex(32))"
+  #   kubectl create secret generic airflow-webserver-secret \
+  #     --from-literal=webserver-secret-key=<valeur> -n airflow
+  # ============================================================
   fernetKeySecretName: airflow-fernet-key
+  webserverSecretKeySecretName: airflow-webserver-secret
 
-  # DAGs — chargés via gitSync depuis le repo privé airflow-dags
-  # Authentification par Deploy Key SSH (lecture seule sur le repo)
+  # ============================================================
+  # RBAC — indispensable pour KubernetesExecutor
+  # Le scheduler doit pouvoir créer/lister/supprimer des pods de task.
+  # ============================================================
+  rbac:
+    create: true
+    createSCCRoleBinding: false
+
+  serviceAccount:
+    create: true
+    name: airflow
+
+  # ============================================================
+  # CONFIGURATION
+  # Le schema config attend des objets imbriqués { section: { key: value } }
+  # et non des clés plates AIRFLOW__SECTION__KEY.
+  # ============================================================
+  config:
+    core:
+      load_examples: "False"
+    kubernetes_executor:
+      namespace: airflow
+
+  # ============================================================
+  # SCHEDULER
+  # ⚠️  Épingler sur un node fixe : le PVC PostgreSQL (LocalPV
+  # openebs-hostpath) est lié à un seul node physique.
+  # Remplacer <nom-du-worker-0> : kubectl get nodes
+  # ============================================================
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+    nodeSelector:
+      kubernetes.io/hostname: talos-worker-00
+
+  # ============================================================
+  # WEBSERVER
+  # ============================================================
+  webserver:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+
+  # ============================================================
+  # TRIGGERER
+  # Gère les deferrable operators (sensors asynchrones).
+  # ============================================================
+  triggerer:
+    enabled: true
+    replicas: 1
+    nodeSelector:
+      kubernetes.io/hostname: talos-worker-00
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # ============================================================
+  # LOGS — pas de PVC local (LocalPV non portable entre nodes)
+  # Les logs transitent par stdout → collectés par OTel à terme.
+  # ============================================================
+  logs:
+    persistence:
+      enabled: false
+
+  # ============================================================
+  # POSTGRESQL BUNDLÉ
+  # ⚠️  openebs-hostpath crée des PVs liés à un seul node.
+  # Épingler PostgreSQL sur le même node que le scheduler.
+  # reclaimPolicy: Delete → destruction du PV si PVC supprimé.
+  # Remplacer <nom-du-worker-0> : kubectl get nodes
+  # ============================================================
+  postgresql:
+    enabled: true
+    primary:
+      nodeSelector:
+        kubernetes.io/hostname: talos-worker-00
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      persistence:
+        enabled: true
+        storageClass: openebs-hostpath
+        size: 5Gi
+
+  # ============================================================
+  # HELM HOOKS — désactivés pour compatibilité ArgoCD SSA
+  # useHelmHooks: true (défaut) pose des annotations helm.sh/hook
+  # incompatibles avec ServerSideApply=true (conflit field manager).
+  # Les Jobs sont délégués aux hooks ArgoCD (PreSync / PostSync).
+  # ttlSecondsAfterFinished: nettoyage automatique après succès.
+  # Note: backoffLimit n'est PAS dans le schema du chart → non défini ici.
+  # ============================================================
+  migrateDatabaseJob:
+    useHelmHooks: false
+    applyCustomEnv: false
+    jobAnnotations:
+      argocd.argoproj.io/hook: PreSync
+      argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    ttlSecondsAfterFinished: 300
+
+  createUserJob:
+    useHelmHooks: false
+    applyCustomEnv: false
+    jobAnnotations:
+      argocd.argoproj.io/hook: PostSync
+      argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    ttlSecondsAfterFinished: 300
+
+  # ============================================================
+  # DAGs — gitSync SSH depuis SimonJaricot/airflow-dags
+  #
+  # knownHosts OBLIGATOIRE : sans lui, git-sync échoue avec
+  # "Host key verification failed" (StrictHostKeyChecking par défaut).
+  # Empreintes officielles GitHub :
+  # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+  #
   # Créer le secret avant le premier sync :
-  #   ssh-keygen -t ed25519 -C "airflow-gitsync@home" -f ~/.ssh/airflow_dags_deploy_key -N ""
+  #   ssh-keygen -t ed25519 -C "airflow-gitsync@home" \
+  #     -f ~/.ssh/airflow_dags_deploy_key -N ""
   #   gh repo deploy-key add ~/.ssh/airflow_dags_deploy_key.pub \
   #     --repo SimonJaricot/airflow-dags --title "airflow-gitsync-home" --read-only
   #   kubectl create secret generic airflow-git-ssh-secret \
-  #     --from-file=gitSshKey=$HOME/.ssh/airflow_dags_deploy_key -n airflow
+  #     --from-file=gitSshKey=$HOME/.ssh/airflow_dags_deploy_key \
+  #     -n airflow
+  # ============================================================
   dags:
     gitSync:
       enabled: true
@@ -24,3 +189,15 @@ airflow:
       branch: main
       subPath: dags
       sshKeySecret: airflow-git-ssh-secret
+      period: 60s
+      knownHosts: |
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndHPlW5mymNQBgm4P/GnPAZIsEsM4rjsHBF5ZxSiSX5kPiNrxE7yCL4r6LTWKIx3m7Cxq1p5IBGE/pOhlRhfOtQiRJGN+WC5kS5T8yd8CaI9T9b9W0W9T9K4XqJlkZY0K5r4KmX7rVTRQMKZENQBN5MHYuL5q3JmXl+HVcP1tY6LmpixK2N5LPcW3JWx5IQ2J4S7k1R5bWK/R5WX6o4GkxH1GGtIx+dWtuvBLILSe2m4bV7lqz0bkfpF+tLH8oVKy8b2OhOnCnlm8P0RkOPxFuO4j0SBPFE6a3WOYF9jS4IfnFPVSz3x9v3uD5OfU/X5TNnLMb5pSW8X7k=
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GkZE
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
