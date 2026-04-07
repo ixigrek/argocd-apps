@@ -43,6 +43,12 @@ airflow:
   #     --from-literal=fernet-key=<valeur> -n airflow
   fernetKeySecretName: airflow-fernet-key
 
+  # Webserver secret key : signature des sessions Flask / JWT
+  #   kubectl create secret generic airflow-webserver-secret-key \
+  #     --from-literal=webserver-secret-key=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
+  #     -n airflow
+  webserverSecretKeySecretName: airflow-webserver-secret-key
+
   # Base de données — PostgreSQL intégré (suffisant pour un usage personnel)
   postgresql:
     enabled: true
