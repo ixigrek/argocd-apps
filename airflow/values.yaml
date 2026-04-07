@@ -36,6 +36,13 @@ airflow:
       # Référence au Secret Kubernetes contenant la clé privée SSH (champ gitSshKey)
       sshKeySecret: airflow-git-ssh-secret
 
+  # Clés de chiffrement — secrets créés manuellement hors GitOps
+  # Fernet key : chiffrement des connexions/variables sensibles en base
+  #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  #   kubectl create secret generic airflow-fernet-key \
+  #     --from-literal=fernet-key=<valeur> -n airflow
+  fernetKeySecretName: airflow-fernet-key
+
   # Base de données — PostgreSQL intégré (suffisant pour un usage personnel)
   postgresql:
     enabled: true
