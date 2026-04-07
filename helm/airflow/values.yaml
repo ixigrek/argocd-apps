@@ -65,17 +65,18 @@ airflow:
   # SCHEDULER
   # ⚠️  Épingler sur un node fixe : le PVC PostgreSQL (LocalPV
   # openebs-hostpath) est lié à un seul node physique.
-  # Remplacer <nom-du-worker-0> : kubectl get nodes
+  # ⚠️  Airflow 3.x charge tous les providers au démarrage : 1Gi minimum.
+  #     Le init container "wait-for-airflow-migrations" hérite de ces resources.
   # ============================================================
   scheduler:
     replicas: 1
     resources:
       requests:
         cpu: 100m
-        memory: 256Mi
+        memory: 512Mi
       limits:
         cpu: 1000m
-        memory: 512Mi
+        memory: 1500Mi
     nodeSelector:
       kubernetes.io/hostname: talos-worker-00
 
@@ -90,14 +91,45 @@ airflow:
         memory: 256Mi
       limits:
         cpu: 1000m
+        memory: 768Mi
+
+  # ============================================================
+  # API SERVER (Airflow 3.x — remplace le webserver Flask/FAB)
+  # ============================================================
+  apiServer:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 768Mi
+
+  # ============================================================
+  # DAG PROCESSOR
+  # Airflow 3.x : composant dédié au parsing des DAGs (séparé du scheduler).
+  # ⚠️  Hérite des resources pour son init container "wait-for-airflow-migrations".
+  # ============================================================
+  dagProcessor:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
         memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1500Mi
+    nodeSelector:
+      kubernetes.io/hostname: talos-worker-00
 
   # ============================================================
   # TRIGGERER
   # Gère les deferrable operators (sensors asynchrones).
   # ⚠️  Le init container "wait-for-airflow-migrations" hérite des
   # resources du triggerer (chart 1.20.0). Airflow 3.x charge tout le
-  # module Python au démarrage → 256Mi minimum pour éviter OOMKilled.
+  # module Python au démarrage → 1Gi minimum pour éviter OOMKilled.
   # ============================================================
   triggerer:
     enabled: true
@@ -107,10 +139,10 @@ airflow:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
 
   # ============================================================
   # LOGS — pas de PVC local (LocalPV non portable entre nodes)
@@ -161,7 +193,7 @@ airflow:
   # - Sync : tourne APRÈS que tous les manifests sont appliqués (SAs, ConfigMaps,
   #   Secrets, PostgreSQL StatefulSet) mais AVANT d'attendre l'état Healthy.
   #   → SA existe, DB disponible, migration réussit, init containers passent.
-  # createUserJob en PostSync (weight=0) tourne après la migration (Sync) et
+  # createUserJob en PostSync tourne après la migration (Sync) et
   # après que les pods soient Healthy.
   # ============================================================
   migrateDatabaseJob:
@@ -185,7 +217,7 @@ airflow:
   #
   # knownHosts OBLIGATOIRE : sans lui, git-sync échoue avec
   # "Host key verification failed" (StrictHostKeyChecking par défaut).
-  # Empreintes officielles GitHub :
+  # Empreintes officielles GitHub (vérifiées via ssh-keyscan github.com) :
   # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
   #
   # Créer le secret avant le premier sync :
@@ -206,9 +238,9 @@ airflow:
       sshKeySecret: airflow-git-ssh-secret
       period: 60s
       knownHosts: |
-        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndHPlW5mymNQBgm4P/GnPAZIsEsM4rjsHBF5ZxSiSX5kPiNrxE7yCL4r6LTWKIx3m7Cxq1p5IBGE/pOhlRhfOtQiRJGN+WC5kS5T8yd8CaI9T9b9W0W9T9K4XqJlkZY0K5r4KmX7rVTRQMKZENQBN5MHYuL5q3JmXl+HVcP1tY6LmpixK2N5LPcW3JWx5IQ2J4S7k1R5bWK/R5WX6o4GkxH1GGtIx+dWtuvBLILSe2m4bV7lqz0bkfpF+tLH8oVKy8b2OhOnCnlm8P0RkOPxFuO4j0SBPFE6a3WOYF9jS4IfnFPVSz3x9v3uD5OfU/X5TNnLMb5pSW8X7k=
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
         github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
-        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GkZE
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
       resources:
         requests:
           cpu: 50m
