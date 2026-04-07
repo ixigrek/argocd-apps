@@ -1,0 +1,59 @@
+# Airflow Helm values pour le cluster home
+# Chart: apache-airflow/airflow 1.20.0 (Airflow 3.1.8)
+
+airflow:
+  # Executor : KubernetesExecutor — chaque task = un pod éphémère
+  # Pas de workers permanents, bien adapté à un cluster Talos avec ressources limitées
+  executor: KubernetesExecutor
+
+  # Désactiver l'ingress Nginx intégré — on utilise Gateway API
+  ingress:
+    web:
+      enabled: false
+
+  # Interface web
+  webserver:
+    replicas: 1
+
+  # Scheduler
+  scheduler:
+    replicas: 1
+
+  # DAGs — chargés via gitSync depuis le repo privé airflow-dags
+  # Authentification par Deploy Key SSH (lecture seule sur le repo)
+  # Créer le secret avant le premier sync :
+  #   ssh-keygen -t ed25519 -C "airflow-gitsync@home" -f ~/.ssh/airflow_dags_deploy_key -N ""
+  #   gh repo deploy-key add ~/.ssh/airflow_dags_deploy_key.pub \
+  #     --repo SimonJaricot/airflow-dags --title "airflow-gitsync-home" --read-only
+  #   kubectl create secret generic airflow-git-ssh-secret \
+  #     --from-file=gitSshKey=~/.ssh/airflow_dags_deploy_key -n airflow
+  dags:
+    gitSync:
+      enabled: true
+      repo: git@github.com:SimonJaricot/airflow-dags.git
+      branch: main
+      subPath: dags
+      # Référence au Secret Kubernetes contenant la clé privée SSH (champ gitSshKey)
+      sshKeySecret: airflow-git-ssh-secret
+
+  # Base de données — PostgreSQL intégré (suffisant pour un usage personnel)
+  postgresql:
+    enabled: true
+
+  # Redis désactivé — inutile avec KubernetesExecutor
+  redis:
+    enabled: false
+
+  # Flower désactivé — UI de monitoring Celery, inutile avec KubernetesExecutor
+  flower:
+    enabled: false
+
+  # Logs persistants
+  logs:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+  # Désactiver le StatsD exporter par défaut (peut être activé plus tard)
+  statsd:
+    enabled: false

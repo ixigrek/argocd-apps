@@ -1,0 +1,31 @@
+---
+# Airflow — orchestrateur de workflows
+# Déployé via Helm umbrella chart (apache-airflow/airflow 1.20.0 / Airflow 3.1.8)
+# KubernetesExecutor : chaque task tourne dans un pod éphémère, pas de workers permanents
+# DAGs chargés via gitSync depuis github.com/SimonJaricot/airflow-dags
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:SimonJaricot/argocd-apps.git
+    targetRevision: HEAD
+    path: airflow
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: airflow
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
