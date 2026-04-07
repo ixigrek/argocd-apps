@@ -1,0 +1,40 @@
+# Metrics Server Helm values pour le cluster home
+# Chart: kubernetes-sigs/metrics-server 3.13.0 (metrics-server 0.8.0)
+# KubernetesExecutor: metrics-server collecte les métriques CPU/mémoire des noeuds et pods
+#
+# NOTE Talos Linux : le kubelet n'a pas de certificat signé par une CA reconnue par défaut.
+# Aucune configuration serverTLSBootstrap/rotateCertificates n'est présente dans talos/patch.yaml.
+# → --kubelet-insecure-tls est obligatoire pour que metrics-server puisse scraper les kubelets.
+# Alternative (plus sécurisée) : ajouter dans patch.yaml :
+#   machine:
+#     kubelet:
+#       extraArgs:
+#         rotate-server-certificates: "true"
+#   puis approuver les CSRs : kubectl get csr | grep Pending | awk '{print $1}' | xargs kubectl certificate approve
+
+metrics-server:
+  # ============================================================
+  # FLAGS KUBELET
+  # --kubelet-insecure-tls : désactive la vérification TLS des certs kubelet.
+  # Nécessaire sur Talos sans serverTLSBootstrap configuré.
+  # ============================================================
+  args:
+    - --kubelet-insecure-tls
+
+  # ============================================================
+  # RESOURCES
+  # ============================================================
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # ============================================================
+  # METRICS API — activer l'API Group metrics.k8s.io
+  # Requis pour : kubectl top nodes/pods, HPA, VPA
+  # ============================================================
+  apiService:
+    create: true

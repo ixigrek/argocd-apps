@@ -1,0 +1,31 @@
+---
+# Metrics Server — collecte des métriques CPU/mémoire des noeuds et pods
+# Chart: kubernetes-sigs/metrics-server 3.13.0 (metrics-server 0.8.0)
+# Requis par : kubectl top nodes/pods, HPA (Horizontal Pod Autoscaler), VPA
+# Appliqué manuellement (hors app-of-apps) : kubectl apply -f apps/metrics-server/overlays/home/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:SimonJaricot/argocd-apps.git
+    targetRevision: HEAD
+    path: helm/metrics-server
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metrics-server
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
