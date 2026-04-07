@@ -48,11 +48,11 @@ airflow:
   flower:
     enabled: false
 
-  # Logs persistants
+  # Logs — persistence désactivée car openebs-hostpath ne supporte que RWO
+  # et le PVC logs nécessite RWX (plusieurs pods y accèdent simultanément)
   logs:
     persistence:
-      enabled: true
-      size: 5Gi
+      enabled: false
 
   # Désactiver le StatsD exporter par défaut (peut être activé plus tard)
   statsd:
