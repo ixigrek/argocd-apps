@@ -145,16 +145,25 @@ airflow:
   # HELM HOOKS — désactivés pour compatibilité ArgoCD SSA
   # useHelmHooks: true (défaut) pose des annotations helm.sh/hook
   # incompatibles avec ServerSideApply=true (conflit field manager).
-  # Les Jobs sont délégués aux hooks ArgoCD (PreSync / PostSync).
+  # Les Jobs sont délégués aux hooks ArgoCD (PostSync).
   # ttlSecondsAfterFinished: nettoyage automatique après succès.
   # Note: backoffLimit n'est PAS dans le schema du chart → non défini ici.
+  #
+  # IMPORTANT — pourquoi PostSync et non PreSync pour migrateDatabaseJob ?
+  # Le Job PreSync s'exécute AVANT les ressources normales (SAs, ConfigMaps,
+  # Secrets). La SA "airflow-migrate-database-job" et le ConfigMap "airflow-config"
+  # n'existent pas encore → le pod ne peut pas démarrer.
+  # PostSync garantit que toutes les ressources (y compris PostgreSQL) sont
+  # Healthy avant l'exécution. Le hook-weight=-1 assure que migrate tourne
+  # AVANT createUserJob (weight=0) dans la même phase PostSync.
   # ============================================================
   migrateDatabaseJob:
     useHelmHooks: false
     applyCustomEnv: false
     jobAnnotations:
-      argocd.argoproj.io/hook: PreSync
+      argocd.argoproj.io/hook: PostSync
       argocd.argoproj.io/hook-delete-policy: HookSucceeded
+      argocd.argoproj.io/hook-weight: "-1"
     ttlSecondsAfterFinished: 300
 
   createUserJob:
@@ -163,6 +172,7 @@ airflow:
     jobAnnotations:
       argocd.argoproj.io/hook: PostSync
       argocd.argoproj.io/hook-delete-policy: HookSucceeded
+      argocd.argoproj.io/hook-weight: "0"
     ttlSecondsAfterFinished: 300
 
   # ============================================================
