@@ -160,6 +160,16 @@ airflow:
         memory: 384Mi
 
   # ============================================================
+  # CLEANUP — suppression des pods KubernetesExecutor terminés
+  # cleanup-pods supprime : evicted / failed / succeeded / pending (>30min)
+  # Pas de TTL différencié succeeded vs failed nativement — tous supprimés
+  # au passage du CronJob (toutes les 15 minutes).
+  # ============================================================
+  cleanup:
+    enabled: true
+    schedule: "*/15 * * * *"
+
+  # ============================================================
   # LOGS — pas de PVC local (LocalPV non portable entre nodes)
   # Les logs transitent par stdout → collectés par OTel à terme.
   # ============================================================
